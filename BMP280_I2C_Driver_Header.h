@@ -22,5 +22,8 @@ void request_measurements(void);
 BMP280_S32_t bmp280_get_temperature(void);
 BMP280_U32_t bmp280_get_pressure(void);
 void bmp280_reset(void);
+void bmp280_sleep(void);
+void bmp280_normal(void);
+
 
 #endif /* BMP280_DRIVER_HEADER_H */

@@ -1,7 +1,10 @@
 #include "BMP280_I2C_Driver_Header.h"
 
+static Bmp280_config_t cfg; 
+int i = 0;
+
 void setup() {
-    Bmp280_config_t cfg = { 
+    cfg = { 
         {
         .normal_or_forced_mode = 0x00,
         .temp_measurement = 0x01,
@@ -12,18 +15,20 @@ void setup() {
     };
     
     init_bmp280(&cfg);
-    pinMode(LED_BUILTIN, OUTPUT);
+
 }
 
 void loop() {
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(1000);
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(1000);
-    
     request_measurements();
     
     char buffer[64];
-    sprintf(buffer, "temp: %ld\tpress: %lu\n", bmp280_get_temperature(), bmp280_get_pressure());
+    sprintf(buffer, "temp: %ld C \tpress: %lu hPa\n", bmp280_get_temperature(), bmp280_get_pressure());
     Serial.print(buffer);
+    
+    if (!cfg.normal_or_forced_mode){
+        (i++ % 2) ? bmp280_sleep() : bmp280_normal();
+    }
+    delay(1000);
 }
+
+

@@ -50,9 +50,6 @@ typedef struct {
     uint16_t config;
 } measurements_t;
 
-
-// Arrays for burst read and write
-static signed long compensation_words[12]; // compensation words indexed by compensation values
 static unsigned char data[6]; // max read size is the 6 bytes of data containing pressure and temperature values
 static unsigned char cmds[2]; // atmost only 2 registers can be written continuously so only 2 addresses need to be provided
 
@@ -161,11 +158,11 @@ void request_measurements(void){
 }
 
 BMP280_S32_t bmp280_get_temperature(void){
-    return ((m.config & 0x01) ? m.temp: 0x00);
+    return ((m.config & 0x01) ? (m.temp / 100) : 0x00);
 }
 
 BMP280_U32_t bmp280_get_pressure(void){
-    return ((m.config & 0x02) ? m.press: 0x00);
+    return ((m.config & 0x02) ? (m.press / 25600): 0x00);
 }
 
 void bmp280_reset(void){
@@ -173,6 +170,24 @@ void bmp280_reset(void){
     data[0] = 0xB6;
     bmp280_burst_write_reg(cmds, 1, data);
 }
+
+void bmp280_sleep(void){
+    cmds[0] = CTRL_MEAS;
+    data[0] = (unsigned char)(((m.config >> 1) & 0xFC) | SLEEP_MODE);
+    bmp280_burst_write_reg(cmds, 1, data);
+}
+
+void bmp280_normal(void){
+    cmds[0] = CTRL_MEAS;
+    data[0] = (unsigned char)(((m.config >> 1) & 0xFC) | NORMAL_MODE);
+    bmp280_burst_write_reg(cmds, 1, data);
+}
+
+void bmp280_focred(void){
+    cmds[0] = CTRL_MEAS;
+    data[0] = (unsigned char)(((m.config >> 1) & 0xFC) | FORCED_MODE);
+    bmp280_burst_write_reg(cmds, 1, data);
+} 
 
 static void bmp280_burst_read_reg(unsigned char * cmds, unsigned char * data, uint8_t data_size){
     bmp280_i2c_receive(cmds, data, data_size);
@@ -189,23 +204,28 @@ static void bmp280_get_calibration_values(void){
     cmds[0] = CALIB00;
     bmp280_burst_read_reg(cmds, calibration_values, 24);
 
-    // ====================================================== //
-    // == implicit cast from unsigned short to signed long == //
-    // ====================================================== //
-    // investigate ...
-    // ====================================================== //
-    for (int i = 0, j = 0; i < 24; i+=2){
-        compensation_words[j++] = calibration_values[i+1] << 8 | calibration_values[i];
-    }
-    // ============================================= //
-    // ============================================= //
+    DIG_T1 = (calibration_values[1] << 8) | calibration_values[0];
+    DIG_T2 = (calibration_values[3] << 8) | calibration_values[2];
+    DIG_T3 = (calibration_values[5] << 8) | calibration_values[4];
+    DIG_P1 = ((calibration_values[7] << 8) | calibration_values[6]) & 0xFFFF;
+    DIG_P2 = (calibration_values[9] << 8) | calibration_values[8];
+    DIG_P3 = (calibration_values[11] << 8) | calibration_values[10];
+    DIG_P4 = (calibration_values[13] << 8) | calibration_values[12];
+    DIG_P5 = (calibration_values[15] << 8) | calibration_values[14];
+    DIG_P6 = (calibration_values[17] << 8) | calibration_values[16];
+    DIG_P7 = (calibration_values[19] << 8) | calibration_values[18];
+    DIG_P8 = (calibration_values[21] << 8) | calibration_values[20];
+    DIG_P9 = (calibration_values[23] << 8) | calibration_values[22];
 }
 
 // The datasheet expects the conversion from unsigned 20 bit int to signed long. The 8 bytes are assembled into a unsigned 24 
 //  bit value which is then bitmasked to 20, since only 20 bits contain data. The value is then explicitly converted into a 
 //  signed 32 long which is the type expected by the compensation functions.
 static BMP280_S32_t assemble_measurement(unsigned char MSB, unsigned BYTE1, unsigned char LSB){ // big endian -- MSB to LSB
-    return (BMP280_S32_t)((MSB << 16 | BYTE1 << 8 | LSB) & 0x0FFFFF);
+    return ((BMP280_S32_t)MSB << 12) | ((BMP280_S32_t)BYTE1 << 4) | ((BMP280_S32_t)LSB >> 4);
+    
+    // BUG !!!! 
+    //return (MSB << 12 | BYTE1 << 4 | LSB >> 4);
 }
 
 // ======================================================== //
@@ -213,7 +233,7 @@ static BMP280_S32_t assemble_measurement(unsigned char MSB, unsigned BYTE1, unsi
 // ======================================================== //
 static BMP280_S32_t t_fine;
 static BMP280_S32_t bmp280_compensate_T_int32(BMP280_S32_t adc_T){
-    BMP280_S32_t var1, var2, T;
+        BMP280_S32_t var1, var2, T;
     var1 = ((((adc_T>>3) - ((BMP280_S32_t)DIG_T1<<1))) * ((BMP280_S32_t)DIG_T2)) >> 11;
     var2 = (((((adc_T>>4) - ((BMP280_S32_t)DIG_T1)) * ((adc_T>>4) - ((BMP280_S32_t)DIG_T1)))>> 12) *((BMP280_S32_t)DIG_T3)) >> 14;
     t_fine = var1 + var2;
